@@ -10,7 +10,18 @@ namespace ESIcontrol
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new MainForm());
+            try
+            {
+                Application.Run(new MainForm());
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "ESIcontrol could not start.\r\n\r\n" + ex.Message,
+                    "ESIcontrol startup error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
         }
     }
 }

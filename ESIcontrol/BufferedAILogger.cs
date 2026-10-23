@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Globalization;
 using System.IO;
-using System.Linq;
 using System.Threading;
 using NationalInstruments.DAQmx;
 
@@ -17,6 +16,7 @@ namespace ESIcontrol
         private System.Threading.Tasks.Task _worker;
         private CancellationTokenSource _cts;
         private bool _isRunning;
+        private readonly object _lifecycleLock = new object();
 
         public event Action<string> OnLog;
 
@@ -30,118 +30,142 @@ namespace ESIcontrol
 
         public bool IsRunning
         {
-            get { return _isRunning; }
+            get { lock (_lifecycleLock) return _isRunning; }
         }
 
         public void Start()
         {
-            if (_isRunning) return;
+            lock (_lifecycleLock)
+            {
+                if (_isRunning) return;
 
-            _cts = new CancellationTokenSource();
-            _worker = System.Threading.Tasks.Task.Run(() => WorkerLoop(_cts.Token));
-            _isRunning = true;
+                _cts = new CancellationTokenSource();
+                _worker = System.Threading.Tasks.Task.Run(() => WorkerLoop(_cts.Token));
+                _isRunning = true;
+            }
         }
 
         public void Stop()
         {
-            if (!_isRunning) return;
+            CancellationTokenSource cts;
+            System.Threading.Tasks.Task worker;
 
-            _cts.Cancel();
+            lock (_lifecycleLock)
+            {
+                if (!_isRunning) return;
+                _isRunning = false;
+
+                cts = _cts;
+                worker = _worker;
+                _cts = null;
+                _worker = null;
+            }
 
             try
             {
-                _worker.Wait();
+                cts.Cancel();
             }
             catch
             {
             }
 
-            _cts.Dispose();
-            _cts = null;
-            _worker = null;
-            _isRunning = false;
+            try
+            {
+                worker?.Wait();
+            }
+            catch
+            {
+            }
+
+            cts.Dispose();
         }
 
         private void WorkerLoop(CancellationToken token)
         {
-            using (NationalInstruments.DAQmx.Task aiTask = new NationalInstruments.DAQmx.Task())
+            try
             {
-                foreach (string ch in _physicalChannels)
+                using (NationalInstruments.DAQmx.Task aiTask = new NationalInstruments.DAQmx.Task())
                 {
-                    aiTask.AIChannels.CreateVoltageChannel(
-                        ch,
+                    foreach (string ch in _physicalChannels)
+                    {
+                        aiTask.AIChannels.CreateVoltageChannel(
+                            ch,
+                            "",
+                            AITerminalConfiguration.Rse,   // 必要なら Differential に変更
+                            -10.0,
+                            10.0,
+                            AIVoltageUnits.Volts
+                        );
+                    }
+
+                    aiTask.Timing.ConfigureSampleClock(
                         "",
-                        AITerminalConfiguration.Differential,   // 必要なら Differential に変更
-                        -10.0,
-                        10.0,
-                        AIVoltageUnits.Volts
+                        _sampleRateHz,
+                        SampleClockActiveEdge.Rising,
+                        SampleQuantityMode.ContinuousSamples,
+                        _samplesPerRead
                     );
-                }
 
-                aiTask.Timing.ConfigureSampleClock(
-                    "",
-                    _sampleRateHz,
-                    SampleClockActiveEdge.Rising,
-                    SampleQuantityMode.ContinuousSamples,
-                    _samplesPerRead 
-                );
+                    AnalogMultiChannelReader reader = new AnalogMultiChannelReader(aiTask.Stream);
 
-                AnalogMultiChannelReader reader = new AnalogMultiChannelReader(aiTask.Stream);
-
-                // CSVヘッダ作成
-                if (!File.Exists(_csvPath))
-                {
-                    string header = "Timestamp";
-                    for (int i = 0; i < _physicalChannels.Length; i++)
+                    bool needsHeader = !File.Exists(_csvPath) || new FileInfo(_csvPath).Length == 0;
+                    using (var csvWriter = new StreamWriter(_csvPath, true))
                     {
-                        header += ",Mean_Ch" + i + "[V]";
-                    }
-                    header += ",N\r\n";
-
-                    File.WriteAllText(_csvPath, header);
-                }
-
-                aiTask.Start();
-                OnLog?.Invoke("Multi-channel AI task started.");
-
-                while (!token.IsCancellationRequested)
-                {
-                    // data[channelIndex, sampleIndex]
-                    double[,] data = reader.ReadMultiSample(_samplesPerRead);
-
-                    double[] means = new double[_physicalChannels.Length];
-
-                    for (int ch = 0; ch < _physicalChannels.Length; ch++)
-                    {
-                        double sum = 0.0;
-                        for (int i = 0; i < _samplesPerRead; i++)
+                        csvWriter.AutoFlush = true;
+                        if (needsHeader)
                         {
-                            sum += data[ch, i];
+                            string header = "Timestamp";
+                            for (int i = 0; i < _physicalChannels.Length; i++)
+                                header += ",Mean_Ch" + i + "[V]";
+                            csvWriter.WriteLine(header + ",N");
                         }
-                        means[ch] = sum / _samplesPerRead;
+
+                        aiTask.Start();
+                        OnLog?.Invoke("Multi-channel AI task started.");
+
+                        while (!token.IsCancellationRequested)
+                        {
+                            // data[channelIndex, sampleIndex]
+                            double[,] data = reader.ReadMultiSample(_samplesPerRead);
+
+                            double[] means = new double[_physicalChannels.Length];
+
+                            for (int ch = 0; ch < _physicalChannels.Length; ch++)
+                            {
+                                double sum = 0.0;
+                                for (int i = 0; i < _samplesPerRead; i++)
+                                    sum += data[ch, i];
+                                means[ch] = sum / _samplesPerRead;
+                            }
+
+                            string line = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+
+                            for (int ch = 0; ch < means.Length; ch++)
+                                line += "," + means[ch].ToString("F6", CultureInfo.InvariantCulture);
+
+                            line += "," + _samplesPerRead.ToString();
+
+                            csvWriter.WriteLine(line);
+                        }
+
+                        aiTask.Stop();
+                        OnLog?.Invoke("Multi-channel AI task stopped.");
                     }
-
-                    string line = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
-
-                    for (int ch = 0; ch < means.Length; ch++)
-                    {
-                        line += "," + means[ch].ToString("F6", CultureInfo.InvariantCulture);
-                    }
-
-                    line += "," + _samplesPerRead.ToString();
-
-                    File.AppendAllText(_csvPath, line + "\r\n");
-
-                    /*string logMsg = "AI mean:";
-                    for (int ch = 0; ch < means.Length; ch++)
-                    {
-                        logMsg += " ch" + ch + "=" + means[ch].ToString("F4", CultureInfo.InvariantCulture) + " V";
-                    }
-                    OnLog?.Invoke(logMsg);*/
                 }
-
-                aiTask.Stop();
-                OnLog?.Invoke("Multi-channel AI task stopped.");
+            }
+            catch (Exception ex)
+            {
+                // 取得スレッドの例外を握りつぶさず通知する
+                OnLog?.Invoke("AI logger worker error: " + ex.Message);
+            }
+            finally
+            {
+                lock (_lifecycleLock)
+                {
+                    // Stop() 後に別ワーカーが開始されている場合は、その状態を壊さない。
+                    if (_worker == null || _worker.Id == System.Threading.Tasks.Task.CurrentId)
+                        _isRunning = false;
+                }
             }
         }
 

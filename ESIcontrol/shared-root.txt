@@ -1,0 +1,3 @@
+# Optional shared data root. ESI_SUITE_ROOT takes precedence over this file.
+# Example:
+# D:\SharedLabData\ESIControlSuite

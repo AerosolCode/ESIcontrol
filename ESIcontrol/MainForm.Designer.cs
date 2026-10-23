@@ -22,6 +22,8 @@
             this.btnStartSequence = new System.Windows.Forms.Button();
             this.btnStop = new System.Windows.Forms.Button();
             this.txtLog = new System.Windows.Forms.TextBox();
+            this.txtCurrentCondition = new System.Windows.Forms.TextBox();
+            this.lblPhase = new System.Windows.Forms.Label();
             this.SuspendLayout();
             // 
             // btnStartSequence
@@ -50,12 +52,33 @@
             this.txtLog.Multiline = true;
             this.txtLog.Name = "txtLog";
             this.txtLog.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
-            this.txtLog.Size = new System.Drawing.Size(760, 360);
+            this.txtLog.Size = new System.Drawing.Size(675, 360);
             this.txtLog.TabIndex = 2;
             // 
+            // txtCurrentCondition
+            //
+            this.txtCurrentCondition.Location = new System.Drawing.Point(704, 70);
+            this.txtCurrentCondition.Multiline = true;
+            this.txtCurrentCondition.Name = "txtCurrentCondition";
+            this.txtCurrentCondition.ReadOnly = true;
+            this.txtCurrentCondition.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
+            this.txtCurrentCondition.Size = new System.Drawing.Size(325, 360);
+            this.txtCurrentCondition.TabIndex = 3;
+            //
+            // lblPhase
+            //
+            this.lblPhase.AutoSize = true;
+            this.lblPhase.Location = new System.Drawing.Point(702, 40);
+            this.lblPhase.Name = "lblPhase";
+            this.lblPhase.Size = new System.Drawing.Size(35, 12);
+            this.lblPhase.TabIndex = 4;
+            this.lblPhase.Text = "label1";
+            //
             // MainForm
             // 
-            this.ClientSize = new System.Drawing.Size(784, 450);
+            this.ClientSize = new System.Drawing.Size(1050, 450);
+            this.Controls.Add(this.lblPhase);
+            this.Controls.Add(this.txtCurrentCondition);
             this.Controls.Add(this.txtLog);
             this.Controls.Add(this.btnStop);
             this.Controls.Add(this.btnStartSequence);
@@ -63,6 +86,10 @@
             this.Text = "ESI Simple GUI";
             this.ResumeLayout(false);
             this.PerformLayout();
+
         }
+
+        private System.Windows.Forms.TextBox txtCurrentCondition;
+        private System.Windows.Forms.Label lblPhase;
     }
 }

@@ -1,4 +1,5 @@
 packages
+.vs/
 ESIcontrol/bin
 ESIcontrol/obj
 ESIcontrol/Properties
